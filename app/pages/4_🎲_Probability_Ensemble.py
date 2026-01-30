@@ -217,25 +217,26 @@ def create_probability_map_figure(
     masked_data = np.where(masked_data == 0, np.nan, masked_data)
 
     # Select colorscale based on map type
+    # Use solid rgb colors with single opacity (same style as Results Explorer)
     if "probability" in map_type.lower() or "impact" in map_type.lower():
         # Probability: 0-1 scale, blue to red
         colorscale = [
-            [0.0, 'rgba(0,0,255,0.3)'],
-            [0.25, 'rgba(0,255,255,0.5)'],
-            [0.5, 'rgba(0,255,0,0.6)'],
-            [0.75, 'rgba(255,255,0,0.7)'],
-            [1.0, 'rgba(255,0,0,0.8)']
+            [0.0, 'rgb(0,0,255)'],
+            [0.25, 'rgb(0,255,255)'],
+            [0.5, 'rgb(0,255,0)'],
+            [0.75, 'rgb(255,255,0)'],
+            [1.0, 'rgb(255,0,0)']
         ]
         zmin, zmax = 0, 1
         colorbar_title = "Probability"
     elif "depth" in map_type.lower():
         # Depth: meters, blue scale
         colorscale = [
-            [0.0, 'rgba(200,230,255,0.4)'],
-            [0.25, 'rgba(100,180,255,0.6)'],
-            [0.5, 'rgba(50,130,220,0.7)'],
-            [0.75, 'rgba(30,80,180,0.8)'],
-            [1.0, 'rgba(10,40,120,0.9)']
+            [0.0, 'rgb(200,230,255)'],
+            [0.25, 'rgb(100,180,255)'],
+            [0.5, 'rgb(50,130,220)'],
+            [0.75, 'rgb(30,80,180)'],
+            [1.0, 'rgb(10,40,120)']
         ]
         zmin = 0
         zmax = np.nanpercentile(masked_data[~np.isnan(masked_data)], 99) if np.any(~np.isnan(masked_data)) else 10
@@ -243,35 +244,35 @@ def create_probability_map_figure(
     elif "velocity" in map_type.lower():
         # Velocity: m/s, purple scale
         colorscale = [
-            [0.0, 'rgba(230,200,255,0.4)'],
-            [0.25, 'rgba(180,130,255,0.6)'],
-            [0.5, 'rgba(140,80,220,0.7)'],
-            [0.75, 'rgba(100,40,180,0.8)'],
-            [1.0, 'rgba(60,0,120,0.9)']
+            [0.0, 'rgb(230,200,255)'],
+            [0.25, 'rgb(180,130,255)'],
+            [0.5, 'rgb(140,80,220)'],
+            [0.75, 'rgb(100,40,180)'],
+            [1.0, 'rgb(60,0,120)']
         ]
         zmin = 0
         zmax = np.nanpercentile(masked_data[~np.isnan(masked_data)], 99) if np.any(~np.isnan(masked_data)) else 50
         colorbar_title = "Velocity (m/s)"
     elif "pressure" in map_type.lower():
-        # Pressure: kPa, red scale
+        # Pressure: kPa, orange-red scale
         colorscale = [
-            [0.0, 'rgba(255,230,200,0.4)'],
-            [0.25, 'rgba(255,180,130,0.6)'],
-            [0.5, 'rgba(255,130,80,0.7)'],
-            [0.75, 'rgba(220,80,40,0.8)'],
-            [1.0, 'rgba(180,30,0,0.9)']
+            [0.0, 'rgb(255,230,200)'],
+            [0.25, 'rgb(255,180,130)'],
+            [0.5, 'rgb(255,130,80)'],
+            [0.75, 'rgb(220,80,40)'],
+            [1.0, 'rgb(180,30,0)']
         ]
         zmin = 0
         zmax = np.nanpercentile(masked_data[~np.isnan(masked_data)], 99) if np.any(~np.isnan(masked_data)) else 100
         colorbar_title = "Pressure (kPa)"
     elif "exceed" in map_type.lower():
-        # Exceedance probability
+        # Exceedance probability: green to red
         colorscale = [
-            [0.0, 'rgba(0,100,0,0.3)'],
-            [0.25, 'rgba(100,200,0,0.5)'],
-            [0.5, 'rgba(255,255,0,0.6)'],
-            [0.75, 'rgba(255,150,0,0.7)'],
-            [1.0, 'rgba(255,0,0,0.8)']
+            [0.0, 'rgb(0,100,0)'],
+            [0.25, 'rgb(100,200,0)'],
+            [0.5, 'rgb(255,255,0)'],
+            [0.75, 'rgb(255,150,0)'],
+            [1.0, 'rgb(255,0,0)']
         ]
         zmin, zmax = 0, 1
         colorbar_title = "P(Exceedance)"
@@ -282,14 +283,14 @@ def create_probability_map_figure(
         zmax = np.nanmax(masked_data) if np.any(~np.isnan(masked_data)) else 1
         colorbar_title = "Value"
 
-    # Add data layer
+    # Add data layer with single opacity (same as Results Explorer)
     fig.add_trace(go.Heatmap(
         z=masked_data,
         x0=xmin, dx=cellsize,
         y0=ymax, dy=-cellsize,
         colorscale=colorscale,
         zmin=zmin, zmax=zmax,
-        opacity=0.8,
+        opacity=0.7,
         colorbar=dict(title=colorbar_title, x=1.02, len=0.5),
         hovertemplate='Value: %{z:.3f}<extra></extra>'
     ))
