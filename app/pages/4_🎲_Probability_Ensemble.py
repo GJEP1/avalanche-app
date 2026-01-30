@@ -41,9 +41,22 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 # Try to import rasterio for GeoTIFF reading
 try:
     import rasterio
+    from rasterio.warp import transform_bounds
     RASTERIO_AVAILABLE = True
 except ImportError:
     RASTERIO_AVAILABLE = False
+
+# Folium for interactive maps with terrain basemap
+try:
+    import folium
+    from folium.raster_layers import ImageOverlay
+    from streamlit_folium import st_folium
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as mcolors
+    from PIL import Image
+    FOLIUM_AVAILABLE = True
+except ImportError:
+    FOLIUM_AVAILABLE = False
 
 from core.auth import require_authentication, show_user_info_sidebar
 from core.project_manager import project_selector_sidebar, get_current_project
@@ -52,6 +65,135 @@ from core.job_queue import get_job_queue
 # =============================================================================
 # Visualization Helper Functions
 # =============================================================================
+
+def create_folium_probability_map(
+    raster_path: Path,
+    map_type: str = "probability",
+    title: str = ""
+) -> folium.Map:
+    """
+    Create an interactive Folium map with terrain basemap and probability overlay.
+
+    Args:
+        raster_path: Path to the GeoTIFF file
+        map_type: Type of map for colorscale selection
+        title: Map title
+
+    Returns:
+        folium.Map object
+    """
+    if not FOLIUM_AVAILABLE or not RASTERIO_AVAILABLE:
+        return None
+
+    with rasterio.open(raster_path) as src:
+        data = src.read(1)
+        bounds = src.bounds
+        crs = src.crs
+        nodata = src.nodata
+
+        # Transform bounds to WGS84 (EPSG:4326) for Folium
+        if crs and crs.to_epsg() != 4326:
+            bounds_wgs84 = transform_bounds(crs, 'EPSG:4326',
+                                            bounds.left, bounds.bottom,
+                                            bounds.right, bounds.top)
+        else:
+            bounds_wgs84 = (bounds.left, bounds.bottom, bounds.right, bounds.top)
+
+    # Mask nodata and zeros
+    masked_data = data.astype(float)
+    if nodata is not None:
+        masked_data = np.where(data == nodata, np.nan, masked_data)
+    masked_data = np.where(masked_data == 0, np.nan, masked_data)
+
+    # Select colormap based on map type
+    if "probability" in map_type.lower() or "impact" in map_type.lower():
+        cmap = mcolors.LinearSegmentedColormap.from_list(
+            'prob', ['blue', 'cyan', 'green', 'yellow', 'red'])
+        vmin, vmax = 0, 1
+    elif "depth" in map_type.lower():
+        cmap = plt.cm.Blues
+        vmin = 0
+        vmax = np.nanpercentile(masked_data, 99) if np.any(~np.isnan(masked_data)) else 10
+    elif "velocity" in map_type.lower():
+        cmap = plt.cm.Purples
+        vmin = 0
+        vmax = np.nanpercentile(masked_data, 99) if np.any(~np.isnan(masked_data)) else 50
+    elif "pressure" in map_type.lower():
+        cmap = plt.cm.Oranges
+        vmin = 0
+        vmax = np.nanpercentile(masked_data, 99) if np.any(~np.isnan(masked_data)) else 100
+    elif "exceed" in map_type.lower():
+        cmap = mcolors.LinearSegmentedColormap.from_list(
+            'exceed', ['darkgreen', 'limegreen', 'yellow', 'orange', 'red'])
+        vmin, vmax = 0, 1
+    else:
+        cmap = plt.cm.viridis
+        vmin = np.nanmin(masked_data) if np.any(~np.isnan(masked_data)) else 0
+        vmax = np.nanmax(masked_data) if np.any(~np.isnan(masked_data)) else 1
+
+    # Normalize data and apply colormap
+    norm = mcolors.Normalize(vmin=vmin, vmax=vmax)
+    colored = cmap(norm(masked_data))
+
+    # Set alpha channel: transparent where NaN, semi-transparent where data
+    alpha = np.where(np.isnan(masked_data), 0, 0.7)
+    colored[:, :, 3] = alpha
+
+    # Convert to PIL Image
+    img_array = (colored * 255).astype(np.uint8)
+    img = Image.fromarray(img_array, mode='RGBA')
+
+    # Save to bytes
+    img_buffer = io.BytesIO()
+    img.save(img_buffer, format='PNG')
+    img_buffer.seek(0)
+
+    # Create base64 encoded image
+    import base64
+    img_base64 = base64.b64encode(img_buffer.getvalue()).decode()
+    img_data = f"data:image/png;base64,{img_base64}"
+
+    # Calculate center
+    center_lat = (bounds_wgs84[1] + bounds_wgs84[3]) / 2
+    center_lon = (bounds_wgs84[0] + bounds_wgs84[2]) / 2
+
+    # Create Folium map with terrain basemap
+    m = folium.Map(
+        location=[center_lat, center_lon],
+        zoom_start=13,
+        tiles=None  # We'll add custom tiles
+    )
+
+    # Add terrain basemap (Stamen Terrain or OpenTopoMap)
+    folium.TileLayer(
+        tiles='https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+        attr='Map data: © OpenStreetMap contributors, SRTM | Map style: © OpenTopoMap (CC-BY-SA)',
+        name='Terrain',
+        max_zoom=17
+    ).add_to(m)
+
+    # Add satellite option
+    folium.TileLayer(
+        tiles='https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+        attr='Esri',
+        name='Satellite'
+    ).add_to(m)
+
+    # Add the probability overlay
+    ImageOverlay(
+        image=img_data,
+        bounds=[[bounds_wgs84[1], bounds_wgs84[0]], [bounds_wgs84[3], bounds_wgs84[2]]],
+        opacity=1.0,  # Alpha is already in the image
+        name=title or map_type.replace('_', ' ').title()
+    ).add_to(m)
+
+    # Add layer control
+    folium.LayerControl().add_to(m)
+
+    # Fit bounds
+    m.fit_bounds([[bounds_wgs84[1], bounds_wgs84[0]], [bounds_wgs84[3], bounds_wgs84[2]]])
+
+    return m
 
 def compute_hillshade(dem: np.ndarray, cellsize: float,
                       azimuth: float = 315, altitude: float = 45) -> np.ndarray:
@@ -1191,56 +1333,65 @@ with tab_results:
 
                         with col_map:
                             if map_path.exists() and RASTERIO_AVAILABLE:
-                                # Load and display the map
-                                data, bounds, cellsize, nodata = load_probability_raster(map_path)
-
-                                if data is not None:
-                                    # Try to load DEM for hillshade background
-                                    dem_array, dem_bounds, dem_cellsize = load_dem_for_ensemble(
-                                        selected_ensemble, project
-                                    )
-
-                                    # Create visualization
-                                    fig = create_probability_map_figure(
-                                        data=data,
-                                        bounds=bounds,
-                                        cellsize=cellsize,
-                                        nodata=nodata,
-                                        dem_array=dem_array,
-                                        dem_bounds=dem_bounds,
-                                        dem_cellsize=dem_cellsize,
+                                # Use Folium map with terrain basemap if available
+                                if FOLIUM_AVAILABLE:
+                                    folium_map = create_folium_probability_map(
+                                        raster_path=map_path,
                                         map_type=map_type,
-                                        title=f"{map_type.replace('_', ' ').title()}"
+                                        title=map_type.replace('_', ' ').title()
                                     )
 
-                                    # Configure for interactivity
-                                    fig.update_layout(
-                                        dragmode='pan',
-                                        xaxis=dict(fixedrange=False),
-                                        yaxis=dict(fixedrange=False),
-                                    )
-
-                                    st.plotly_chart(
-                                        fig,
-                                        use_container_width=True,
-                                        key='prob_map_view',
-                                        config={
-                                            'scrollZoom': True,
-                                            'displayModeBar': True,
-                                            'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
-                                            'displaylogo': False,
-                                            'toImageButtonOptions': {
-                                                'format': 'png',
-                                                'filename': f'{map_type}',
-                                                'height': 800,
-                                                'width': 1200,
-                                                'scale': 2
-                                            }
-                                        }
-                                    )
-                                    st.caption("Mouse wheel to zoom, drag to pan")
+                                    if folium_map is not None:
+                                        st_folium(
+                                            folium_map,
+                                            width=None,
+                                            height=600,
+                                            key=f"prob_map_{map_type}"
+                                        )
+                                        st.caption("Use layer control (top right) to switch between Terrain and Satellite basemaps")
+                                    else:
+                                        st.warning("Could not create map visualization.")
                                 else:
-                                    st.warning("Could not load raster data.")
+                                    # Fallback to Plotly visualization
+                                    data, bounds, cellsize, nodata = load_probability_raster(map_path)
+
+                                    if data is not None:
+                                        dem_array, dem_bounds, dem_cellsize = load_dem_for_ensemble(
+                                            selected_ensemble, project
+                                        )
+
+                                        fig = create_probability_map_figure(
+                                            data=data,
+                                            bounds=bounds,
+                                            cellsize=cellsize,
+                                            nodata=nodata,
+                                            dem_array=dem_array,
+                                            dem_bounds=dem_bounds,
+                                            dem_cellsize=dem_cellsize,
+                                            map_type=map_type,
+                                            title=f"{map_type.replace('_', ' ').title()}"
+                                        )
+
+                                        fig.update_layout(
+                                            dragmode='pan',
+                                            xaxis=dict(fixedrange=False),
+                                            yaxis=dict(fixedrange=False),
+                                        )
+
+                                        st.plotly_chart(
+                                            fig,
+                                            use_container_width=True,
+                                            key='prob_map_view',
+                                            config={
+                                                'scrollZoom': True,
+                                                'displayModeBar': True,
+                                                'modeBarButtonsToRemove': ['lasso2d', 'select2d'],
+                                                'displaylogo': False,
+                                            }
+                                        )
+                                        st.caption("Mouse wheel to zoom, drag to pan")
+                                    else:
+                                        st.warning("Could not load raster data.")
                             elif not RASTERIO_AVAILABLE:
                                 st.warning("Install rasterio for map visualization: `pip install rasterio`")
                             else:
@@ -1278,42 +1429,62 @@ with tab_results:
 
                             with col_map:
                                 if map_path.exists() and RASTERIO_AVAILABLE:
-                                    data, bounds, cellsize, nodata = load_probability_raster(map_path)
-
-                                    if data is not None:
-                                        dem_array, dem_bounds, dem_cellsize = load_dem_for_ensemble(
-                                            selected_ensemble, project
-                                        )
-
-                                        fig = create_probability_map_figure(
-                                            data=data,
-                                            bounds=bounds,
-                                            cellsize=cellsize,
-                                            nodata=nodata,
-                                            dem_array=dem_array,
-                                            dem_bounds=dem_bounds,
-                                            dem_cellsize=dem_cellsize,
+                                    # Use Folium map with terrain basemap if available
+                                    if FOLIUM_AVAILABLE:
+                                        folium_map = create_folium_probability_map(
+                                            raster_path=map_path,
                                             map_type=map_type,
-                                            title=f"{map_type.replace('_', ' ').title()}"
+                                            title=map_type.replace('_', ' ').title()
                                         )
 
-                                        fig.update_layout(
-                                            dragmode='pan',
-                                            xaxis=dict(fixedrange=False),
-                                            yaxis=dict(fixedrange=False),
-                                        )
+                                        if folium_map is not None:
+                                            st_folium(
+                                                folium_map,
+                                                width=None,
+                                                height=600,
+                                                key=f"prob_map_nosummary_{map_type}"
+                                            )
+                                            st.caption("Use layer control (top right) to switch between Terrain and Satellite basemaps")
+                                        else:
+                                            st.warning("Could not create map visualization.")
+                                    else:
+                                        # Fallback to Plotly
+                                        data, bounds, cellsize, nodata = load_probability_raster(map_path)
 
-                                        st.plotly_chart(
-                                            fig,
-                                            use_container_width=True,
-                                            key='prob_map_view_nosummary',
-                                            config={
-                                                'scrollZoom': True,
-                                                'displayModeBar': True,
-                                                'displaylogo': False,
-                                            }
-                                        )
-                                        st.caption("Mouse wheel to zoom, drag to pan")
+                                        if data is not None:
+                                            dem_array, dem_bounds, dem_cellsize = load_dem_for_ensemble(
+                                                selected_ensemble, project
+                                            )
+
+                                            fig = create_probability_map_figure(
+                                                data=data,
+                                                bounds=bounds,
+                                                cellsize=cellsize,
+                                                nodata=nodata,
+                                                dem_array=dem_array,
+                                                dem_bounds=dem_bounds,
+                                                dem_cellsize=dem_cellsize,
+                                                map_type=map_type,
+                                                title=f"{map_type.replace('_', ' ').title()}"
+                                            )
+
+                                            fig.update_layout(
+                                                dragmode='pan',
+                                                xaxis=dict(fixedrange=False),
+                                                yaxis=dict(fixedrange=False),
+                                            )
+
+                                            st.plotly_chart(
+                                                fig,
+                                                use_container_width=True,
+                                                key='prob_map_view_nosummary',
+                                                config={
+                                                    'scrollZoom': True,
+                                                    'displayModeBar': True,
+                                                    'displaylogo': False,
+                                                }
+                                            )
+                                            st.caption("Mouse wheel to zoom, drag to pan")
                         else:
                             st.warning("Summary report not found for this ensemble.")
                     else:
