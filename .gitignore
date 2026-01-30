@@ -1,0 +1,50 @@
+# Virtual environment
+venv/
+.venv/
+env/
+
+# Node modules
+node_modules/
+
+# External dependencies (has own git repo)
+AvaFrame/
+
+# Data symlink (points to /mnt/data with results)
+data
+
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Secrets and credentials
+.streamlit/secrets.toml
+*.env
+.env
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Logs
+*.log
+
+# Distribution / packaging
+dist/
+build/
+*.egg-info/
+
+# Test artifacts
+.pytest_cache/
+.coverage
+htmlcov/

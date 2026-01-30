@@ -1,0 +1,14 @@
+cookie:
+  expiry_days: 30
+  key: avalanche_app_secret_key_12345
+  name: avalanche_app_cookie
+credentials:
+  usernames:
+    Geovakt:
+      email: geosvf@nve.no
+      name: Geovakt
+      password: $2b$12$17e.5pDqRpvojUMroVQp8OIEeFrWKD78ovbB.JSO9X5WRcnnAHJyG
+    admin:
+      email: admin@example.com
+      name: Administrator
+      password: $2b$12$OMGve1M1q/x1wti3wyDKUOUmhuOj5q6HBlaC/aEGfsxRlXQ5AMDbC
