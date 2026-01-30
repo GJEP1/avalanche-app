@@ -1259,22 +1259,37 @@ with tab_results:
                         st.metric("Weighting", config_data.get("weighting_method", "N/A"))
 
                     # Runout statistics
-                    st.markdown("### Runout Statistics")
+                    st.markdown("### Runout Length")
 
                     runout_stats = summary.get("simulation_statistics", {}).get("runout_m", {})
 
                     if runout_stats:
-                        stats_df = pd.DataFrame({
-                            "Statistic": ["Minimum", "P10", "Median (P50)", "P90", "Maximum"],
-                            "Runout (m)": [
-                                runout_stats.get("min", 0),
-                                runout_stats.get("p10", 0),
-                                runout_stats.get("p50", 0),
-                                runout_stats.get("p90", 0),
-                                runout_stats.get("max", 0)
-                            ]
-                        })
-                        st.dataframe(stats_df, hide_index=True)
+                        # Display P10, P50, P90 as prominent metrics
+                        col_r1, col_r2, col_r3 = st.columns(3)
+                        with col_r1:
+                            p10_val = runout_stats.get("p10", 0)
+                            st.metric("P10 Runout", f"{p10_val:,.0f} m")
+                        with col_r2:
+                            p50_val = runout_stats.get("p50", 0)
+                            st.metric("P50 Runout (Median)", f"{p50_val:,.0f} m")
+                        with col_r3:
+                            p90_val = runout_stats.get("p90", 0)
+                            st.metric("P90 Runout", f"{p90_val:,.0f} m")
+
+                        # Full statistics table
+                        with st.expander("Full runout statistics"):
+                            stats_df = pd.DataFrame({
+                                "Statistic": ["Minimum", "P10", "Median (P50)", "P90", "Maximum", "Mean"],
+                                "Runout (m)": [
+                                    runout_stats.get("min", 0),
+                                    runout_stats.get("p10", 0),
+                                    runout_stats.get("p50", 0),
+                                    runout_stats.get("p90", 0),
+                                    runout_stats.get("max", 0),
+                                    runout_stats.get("mean", 0)
+                                ]
+                            })
+                            st.dataframe(stats_df, hide_index=True)
 
                     # Output maps
                     st.markdown("### Probability Maps")
