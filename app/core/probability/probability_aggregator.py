@@ -415,6 +415,61 @@ class ProbabilityAggregator:
         return outputs
 
 
+def compute_runout_distance_raster(
+    depth_raster: np.ndarray,
+    transform: tuple,
+    release_centroid: tuple = None,
+    min_depth: float = 0.1
+) -> np.ndarray:
+    """
+    Compute runout distance from release area to each impacted cell.
+
+    Args:
+        depth_raster: 2D array of flow depths
+        transform: Affine transform (cellsize, 0, xmin, 0, -cellsize, ymax)
+        release_centroid: (x, y) coordinates of release area centroid
+                         If None, uses the cell with maximum depth as origin
+        min_depth: Minimum depth to consider as impacted
+
+    Returns:
+        2D array of distances from release point (meters)
+        Non-impacted cells have value 0
+    """
+    rows, cols = depth_raster.shape
+
+    # Create coordinate arrays
+    # transform typically: (cellsize, 0, xmin, 0, -cellsize, ymax)
+    if len(transform) == 6:
+        cellsize = transform[0]
+        xmin = transform[2]
+        ymax = transform[5]
+    else:
+        # Assume it's an Affine object
+        cellsize = transform.a
+        xmin = transform.c
+        ymax = transform.f
+
+    # Create x, y coordinate grids
+    x_coords = xmin + np.arange(cols) * cellsize + cellsize / 2
+    y_coords = ymax - np.arange(rows) * cellsize - cellsize / 2
+    xx, yy = np.meshgrid(x_coords, y_coords)
+
+    # Find release centroid if not provided
+    if release_centroid is None:
+        # Use the cell with maximum depth as proxy for release area
+        max_idx = np.unravel_index(np.argmax(depth_raster), depth_raster.shape)
+        release_centroid = (xx[max_idx], yy[max_idx])
+
+    # Compute distance from release centroid
+    distances = np.sqrt((xx - release_centroid[0])**2 + (yy - release_centroid[1])**2)
+
+    # Mask to only impacted cells
+    impact_mask = depth_raster > min_depth
+    runout_distance = np.where(impact_mask, distances, 0)
+
+    return runout_distance
+
+
 def compute_hazard_zones(
     impact_probability: np.ndarray,
     intensity_class: np.ndarray

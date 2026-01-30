@@ -110,6 +110,12 @@ def create_folium_probability_map(
         cmap = mcolors.LinearSegmentedColormap.from_list(
             'prob', ['blue', 'cyan', 'green', 'yellow', 'red'])
         vmin, vmax = 0, 1
+    elif "runout" in map_type.lower():
+        # Runout distance: green to red gradient
+        cmap = mcolors.LinearSegmentedColormap.from_list(
+            'runout', ['darkgreen', 'green', 'yellow', 'orange', 'red'])
+        vmin = 0
+        vmax = np.nanpercentile(masked_data, 99) if np.any(~np.isnan(masked_data)) else 5000
     elif "depth" in map_type.lower():
         cmap = plt.cm.Blues
         vmin = 0
@@ -371,6 +377,18 @@ def create_probability_map_figure(
         ]
         zmin, zmax = 0, 1
         colorbar_title = "Probability"
+    elif "runout" in map_type.lower():
+        # Runout distance: green to red gradient
+        colorscale = [
+            [0.0, 'rgb(0,100,0)'],
+            [0.25, 'rgb(0,200,0)'],
+            [0.5, 'rgb(255,255,0)'],
+            [0.75, 'rgb(255,150,0)'],
+            [1.0, 'rgb(255,0,0)']
+        ]
+        zmin = 0
+        zmax = np.nanpercentile(masked_data[~np.isnan(masked_data)], 99) if np.any(~np.isnan(masked_data)) else 5000
+        colorbar_title = "Runout Distance (m)"
     elif "depth" in map_type.lower():
         # Depth: meters, blue scale
         colorscale = [
@@ -1305,6 +1323,7 @@ with tab_results:
                         # Organize maps by category for better UX
                         map_categories = {
                             "Impact Probability": [m for m in available_tifs if "impact" in m.lower() or m == "impact_probability"],
+                            "Runout Distance": [m for m in available_tifs if "runout" in m.lower()],
                             "Depth": [m for m in available_tifs if "depth" in m.lower()],
                             "Velocity": [m for m in available_tifs if "velocity" in m.lower()],
                             "Pressure": [m for m in available_tifs if "pressure" in m.lower()],

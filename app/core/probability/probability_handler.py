@@ -28,7 +28,11 @@ from .ensemble_manager import (
     SLBLSurface
 )
 from .weighting_schemes import SimulationMetrics, WeightingMethod
-from .probability_aggregator import ProbabilityAggregator, ProbabilityConfig
+from .probability_aggregator import (
+    ProbabilityAggregator,
+    ProbabilityConfig,
+    compute_runout_distance_raster
+)
 
 
 def run_probability_ensemble(
@@ -470,8 +474,9 @@ def aggregate_ensemble_results(
     # Allocate stacks
     depth_stack = np.zeros((n_sims, shape[0], shape[1]), dtype=np.float32)
     velocity_stack = np.zeros_like(depth_stack)
+    runout_stack = np.zeros_like(depth_stack)
 
-    # Load all rasters
+    # Load all rasters and compute runout distances
     for i, result in enumerate(successful_results):
         report(f"Loading raster {i+1}/{n_sims}", 0.1 + 0.3 * (i / n_sims))
 
@@ -483,6 +488,13 @@ def aggregate_ensemble_results(
                 # Handle shape mismatch by resampling if needed
                 if data.shape == shape:
                     depth_stack[i] = data
+                    # Compute runout distance for this simulation
+                    runout_stack[i] = compute_runout_distance_raster(
+                        depth_raster=data,
+                        transform=transform,
+                        release_centroid=None,  # Auto-detect from max depth
+                        min_depth=0.1
+                    )
                 else:
                     # Basic resize - in production use proper resampling
                     depth_stack[i] = np.zeros(shape, dtype=np.float32)
@@ -511,6 +523,12 @@ def aggregate_ensemble_results(
         velocity_stack=velocity_stack,
         weights=weights
     )
+
+    # Compute runout distance percentiles
+    report("Computing runout distance percentiles...", 0.6)
+    runout_percentiles = aggregator.compute_all_percentiles(runout_stack, weights)
+    for p, arr in runout_percentiles.items():
+        outputs[f"runout_p{p}"] = arr
 
     # Save outputs as GeoTIFFs
     report("Saving probability maps...", 0.8)
