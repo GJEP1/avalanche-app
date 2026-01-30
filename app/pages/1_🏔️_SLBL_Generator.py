@@ -739,7 +739,7 @@ with tab_jobs:
                         progress = job.progress
                         worker_info = f" (Worker #{progress.worker_id})" if progress.worker_id else ""
                         st.progress(progress.percent / 100)
-                        st.caption(f"{progress.current}/{progress.total} — {progress.message}{worker_info}")
+                        st.caption(f"{progress.percent:.0f}% — {progress.message}{worker_info}")
 
                         col_btn1, col_btn2 = st.columns(2)
                         with col_btn1:
