@@ -263,29 +263,36 @@ with tab_single:
             # Performance preset
             preset = st.radio(
                 "Performance preset",
-                ["Standard (accurate)", "Fast (coarser)"],
+                ["Fast", "Standard", "Accurate"],
+                index=1,  # Default to Standard
                 horizontal=True,
-                help="Standard: more particles, slower but more accurate. Fast: fewer particles, quicker runs."
+                help="Fast: ~15 min. Standard: ~35 min. Accurate: ~80 min."
             )
 
-            if preset == "Standard (accurate)":
+            if preset == "Accurate":
                 default_mass = 280000.0
                 default_delta = 2.0
-            else:
+                default_timeout = 9000  # 2.5 hours
+            elif preset == "Standard":
                 default_mass = 500000.0
                 default_delta = 4.0
+                default_timeout = 7200  # 2 hours
+            else:  # Fast
+                default_mass = 700000.0
+                default_delta = 6.0
+                default_timeout = 3600  # 1 hour
 
             sph_option = st.selectbox("SPH Option", [1, 2, 3], index=2,
                                        help="Default: 3 (local coord system with surface reprojection)")
             mass_per_part = st.number_input("Mass per particle [kg]",
                                            value=default_mass, step=10000.0,
-                                           help="Default: 280,000 (Standard) / 500,000 (Fast)")
+                                           help="Default: 700,000 (Fast) / 500,000 (Standard) / 280,000 (Accurate)")
             delta_th = st.number_input("Release thickness per particle [m]",
                                       value=default_delta, step=0.5,
-                                      help="Default: 2.0 (Standard) / 4.0 (Fast)")
+                                      help="Default: 6.0 (Fast) / 4.0 (Standard) / 2.0 (Accurate)")
             timeout = st.number_input("Timeout [seconds]",
-                                     value=3600, min_value=300, max_value=14400,
-                                     help="Default: 3600 (1 hour)")
+                                     value=default_timeout, min_value=300, max_value=14400,
+                                     help="Default: 3600 (Fast) / 7200 (Standard) / 9000 (Accurate)")
     
     st.divider()
     
@@ -418,19 +425,26 @@ with tab_sweep:
             # Performance preset
             sweep_preset = st.radio(
                 "Performance preset",
-                ["Standard (accurate)", "Fast (coarser)"],
+                ["Fast", "Standard", "Accurate"],
+                index=1,  # Default to Standard
                 horizontal=True,
                 key="sweep_preset",
-                help="Standard: more particles, slower but more accurate. Fast: fewer particles, quicker runs."
+                help="Fast: ~15 min/sim. Standard: ~35 min/sim. Accurate: ~80 min/sim."
             )
 
             # Determine default values based on preset
-            if sweep_preset == "Standard (accurate)":
+            if sweep_preset == "Accurate":
                 sweep_default_mass = 280000.0
                 sweep_default_delta = 2.0
-            else:
+                sweep_default_timeout = 9000  # 2.5 hours
+            elif sweep_preset == "Standard":
                 sweep_default_mass = 500000.0
                 sweep_default_delta = 4.0
+                sweep_default_timeout = 7200  # 2 hours
+            else:  # Fast
+                sweep_default_mass = 700000.0
+                sweep_default_delta = 6.0
+                sweep_default_timeout = 3600  # 1 hour
 
             # Track preset changes and reset values when preset changes
             if 'sweep_preset_prev' not in st.session_state:
@@ -440,6 +454,7 @@ with tab_sweep:
                 # Preset changed - update the values
                 st.session_state.sweep_mass = sweep_default_mass
                 st.session_state.sweep_delta = sweep_default_delta
+                st.session_state.sweep_timeout = sweep_default_timeout
                 st.session_state.sweep_preset_prev = sweep_preset
                 st.rerun()
 
@@ -447,12 +462,12 @@ with tab_sweep:
                                         help="Default: 2500 (rock)")
             sweep_mass_per_part = st.number_input("Mass per particle [kg]",
                                                   value=sweep_default_mass, step=10000.0, key="sweep_mass",
-                                                  help="Default: 280,000 (Standard) / 500,000 (Fast)")
+                                                  help="Default: 700,000 (Fast) / 500,000 (Standard) / 280,000 (Accurate)")
             sweep_delta_th = st.number_input("Release thickness per particle [m]",
                                             value=sweep_default_delta, step=0.5, key="sweep_delta",
-                                            help="Default: 2.0 (Standard) / 4.0 (Fast)")
-            sweep_timeout = st.number_input("Timeout per sim [s]", value=3600, key="sweep_timeout",
-                                           help="Default: 3600 (1 hour)")
+                                            help="Default: 6.0 (Fast) / 4.0 (Standard) / 2.0 (Accurate)")
+            sweep_timeout = st.number_input("Timeout per sim [s]", value=sweep_default_timeout, key="sweep_timeout",
+                                           help="Default: 3600 (Fast) / 7200 (Standard) / 9000 (Accurate)")
     
     st.divider()
 

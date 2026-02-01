@@ -418,11 +418,29 @@ class JobQueue:
             self._futures.pop(job_id, None)
 
     def _is_exclusive_job_running(self) -> bool:
-        """Check if any exclusive (resource-heavy) job is currently running."""
+        """Check if any exclusive (resource-heavy) job is currently running.
+
+        Checks both in-memory tracking AND job files on disk to handle
+        app restarts where in-memory state is lost.
+        """
+        # First check in-memory tracking
         with self._lock:
             for job_type in self._running_job_types.values():
                 if job_type in self.EXCLUSIVE_JOB_TYPES:
                     return True
+
+        # Also check job files on disk for running exclusive jobs
+        # This handles cases where the app restarted but jobs are still running
+        for job_file in self.queue_dir.glob("*.json"):
+            try:
+                with open(job_file) as f:
+                    job_data = json.load(f)
+                if (job_data.get("status") == "running" and
+                    job_data.get("job_type") in self.EXCLUSIVE_JOB_TYPES):
+                    return True
+            except Exception:
+                continue
+
         return False
 
     def _dispatcher_loop(self):
