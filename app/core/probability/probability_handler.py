@@ -31,7 +31,7 @@ from .weighting_schemes import SimulationMetrics, WeightingMethod
 from .probability_aggregator import (
     ProbabilityAggregator,
     ProbabilityConfig,
-    compute_runout_distance_raster
+    compute_runout_envelopes
 )
 
 
@@ -109,6 +109,7 @@ def run_probability_ensemble(
     # Get simulation performance settings from config
     mass_per_part = ensemble_config.mass_per_part
     delta_th = ensemble_config.delta_th
+    sim_timeout = ensemble_config.sim_timeout
 
     # Build simulation tasks
     def run_single_sim(sample):
@@ -133,7 +134,8 @@ def run_probability_ensemble(
                 output_dir=sim_output_dir,
                 job_id=job_id,
                 mass_per_part=mass_per_part,
-                delta_th=delta_th
+                delta_th=delta_th,
+                timeout=sim_timeout
             )
 
             metrics = extract_metrics_from_result(
@@ -273,7 +275,8 @@ def run_avaframe_simulation(
     output_dir: Path,
     job_id: str = None,
     mass_per_part: float = 500000.0,
-    delta_th: float = 4.0
+    delta_th: float = 4.0,
+    timeout: int = 7200
 ) -> Dict[str, Any]:
     """
     Run single AvaFrame simulation with specified parameters.
@@ -288,8 +291,9 @@ def run_avaframe_simulation(
         xi: Turbulence coefficient for Voellmy model (m/s^2)
         output_dir: Directory for simulation outputs
         job_id: Optional job ID for process tracking
-        mass_per_part: Mass per particle [kg] (default: 500000 for fast mode)
-        delta_th: Release thickness per particle [m] (default: 4.0 for fast mode)
+        mass_per_part: Mass per particle [kg] (default: 500000 for standard mode)
+        delta_th: Release thickness per particle [m] (default: 4.0 for standard mode)
+        timeout: Simulation timeout in seconds (default: 7200 = 2 hours)
 
     Returns:
         Dictionary with simulation results including:
@@ -345,7 +349,7 @@ def run_avaframe_simulation(
     # Run simulation
     result = run_single_simulation(
         sim_dir=sim_dir,
-        timeout=7200,  # 2 hours - large volumes may need extended runtime
+        timeout=timeout,
         created_by="probability_ensemble",
         job_id=job_id
     )
@@ -474,9 +478,8 @@ def aggregate_ensemble_results(
     # Allocate stacks
     depth_stack = np.zeros((n_sims, shape[0], shape[1]), dtype=np.float32)
     velocity_stack = np.zeros_like(depth_stack)
-    runout_stack = np.zeros_like(depth_stack)
 
-    # Load all rasters and compute runout distances
+    # Load all rasters
     for i, result in enumerate(successful_results):
         report(f"Loading raster {i+1}/{n_sims}", 0.1 + 0.3 * (i / n_sims))
 
@@ -488,13 +491,6 @@ def aggregate_ensemble_results(
                 # Handle shape mismatch by resampling if needed
                 if data.shape == shape:
                     depth_stack[i] = data
-                    # Compute runout distance for this simulation
-                    runout_stack[i] = compute_runout_distance_raster(
-                        depth_raster=data,
-                        transform=transform,
-                        release_centroid=None,  # Auto-detect from max depth
-                        min_depth=0.1
-                    )
                 else:
                     # Basic resize - in production use proper resampling
                     depth_stack[i] = np.zeros(shape, dtype=np.float32)
@@ -524,10 +520,11 @@ def aggregate_ensemble_results(
         weights=weights
     )
 
-    # Compute runout distance percentiles
-    report("Computing runout distance percentiles...", 0.6)
-    runout_percentiles = aggregator.compute_all_percentiles(runout_stack, weights)
-    for p, arr in runout_percentiles.items():
+    # Compute runout envelope maps based on impact probability thresholds
+    # P10 = conservative core (>=90% of sims reach), P90 = extended area (>=10% of sims reach)
+    report("Computing runout envelope maps...", 0.6)
+    runout_envelopes = compute_runout_envelopes(outputs["impact_probability"])
+    for p, arr in runout_envelopes.items():
         outputs[f"runout_p{p}"] = arr
 
     # Save outputs as GeoTIFFs

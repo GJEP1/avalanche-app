@@ -455,19 +455,25 @@ with tab_sweep:
                                            help="Default: 3600 (1 hour)")
     
     st.divider()
-    
+
+    # Check if another heavy job is running
+    queue_status = job_queue.get_queue_status()
+    if queue_status.get('exclusive_job_running'):
+        st.info("⏳ Note: Another heavy job (sweep or ensemble) is currently running. "
+                "Your job will be queued and start automatically when the current job completes.")
+
     # Submit sweep
     col_sweep_submit, col_sweep_status = st.columns([1, 2])
-    
+
     with col_sweep_submit:
         can_sweep = sweep_thickness_path and sweep_polygon_path
-        
+
         if st.button("🚀 Start Parameter Sweep", type="primary",
                     disabled=not can_sweep, width="stretch"):
-            
+
             thickness_name = Path(sweep_thickness_path).stem.replace('_thickness', '')
             sweep_name = f"sweep_{thickness_name}_{mu_steps}x{xi_steps}"
-            
+
             job = job_queue.submit(
                 job_type='simulation_sweep',
                 project_name=project.name,
@@ -489,9 +495,13 @@ with tab_sweep:
                     'dem_path': project.config.dem_path,
                 }
             )
-            
-            st.success(f"Sweep submitted! Job ID: {job.id}")
-    
+
+            # Check if job was queued behind another
+            if queue_status.get('exclusive_job_running'):
+                st.success(f"Sweep submitted! Job ID: {job.id}\n\n⏳ Queued — will start when current heavy job completes.")
+            else:
+                st.success(f"Sweep submitted! Job ID: {job.id}")
+
     with col_sweep_status:
         if not can_sweep:
             st.warning("Select thickness raster and release polygon.")
@@ -724,6 +734,9 @@ with tab_jobs:
                             st.rerun()
 
                     elif job.status == JobStatus.PENDING:
+                        # Check if this exclusive job is queued behind another
+                        if job.job_type in job_queue.EXCLUSIVE_JOB_TYPES and queue_status.get('exclusive_job_running'):
+                            st.info("⏳ Queued — waiting for current heavy job to complete")
                         if st.button("❌ Cancel", key=f"cancel_sim_{job.id}"):
                             job_queue.cancel_job(job.id)
                             st.rerun()

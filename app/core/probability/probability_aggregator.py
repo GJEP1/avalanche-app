@@ -415,59 +415,43 @@ class ProbabilityAggregator:
         return outputs
 
 
-def compute_runout_distance_raster(
-    depth_raster: np.ndarray,
-    transform: tuple,
-    release_centroid: tuple = None,
-    min_depth: float = 0.1
-) -> np.ndarray:
+def compute_runout_envelopes(
+    impact_probability: np.ndarray
+) -> Dict[int, np.ndarray]:
     """
-    Compute runout distance from release area to each impacted cell.
+    Compute runout envelope maps at different probability thresholds.
+
+    These show the spatial extent of runout at different confidence levels:
+    - P10 envelope: Conservative core area (cells reached by >=90% of simulations)
+    - P50 envelope: Median extent (cells reached by >=50% of simulations)
+    - P90 envelope: Extended area including rare events (cells reached by >=10% of simulations)
+
+    The naming follows the convention that P90 shows the 90th percentile of
+    runout extent (larger area, includes rare long-runout events).
 
     Args:
-        depth_raster: 2D array of flow depths
-        transform: Affine transform (cellsize, 0, xmin, 0, -cellsize, ymax)
-        release_centroid: (x, y) coordinates of release area centroid
-                         If None, uses the cell with maximum depth as origin
-        min_depth: Minimum depth to consider as impacted
+        impact_probability: 2D array of impact probabilities (0-1)
 
     Returns:
-        2D array of distances from release point (meters)
-        Non-impacted cells have value 0
+        Dictionary with:
+        - 10: Binary mask of P10 envelope (impact_prob >= 0.90)
+        - 50: Binary mask of P50 envelope (impact_prob >= 0.50)
+        - 90: Binary mask of P90 envelope (impact_prob >= 0.10)
     """
-    rows, cols = depth_raster.shape
+    # Probability thresholds for each percentile
+    # P10 = conservative (90% of sims reach here)
+    # P90 = includes rare events (only 10% of sims need to reach)
+    thresholds = {
+        10: 0.90,  # P10 envelope: 90% of simulations reach this area
+        50: 0.50,  # P50 envelope: 50% of simulations reach this area
+        90: 0.10,  # P90 envelope: 10% of simulations reach this area
+    }
 
-    # Create coordinate arrays
-    # transform typically: (cellsize, 0, xmin, 0, -cellsize, ymax)
-    if len(transform) == 6:
-        cellsize = transform[0]
-        xmin = transform[2]
-        ymax = transform[5]
-    else:
-        # Assume it's an Affine object
-        cellsize = transform.a
-        xmin = transform.c
-        ymax = transform.f
+    envelopes = {}
+    for percentile, threshold in thresholds.items():
+        envelopes[percentile] = (impact_probability >= threshold).astype(np.float32)
 
-    # Create x, y coordinate grids
-    x_coords = xmin + np.arange(cols) * cellsize + cellsize / 2
-    y_coords = ymax - np.arange(rows) * cellsize - cellsize / 2
-    xx, yy = np.meshgrid(x_coords, y_coords)
-
-    # Find release centroid if not provided
-    if release_centroid is None:
-        # Use the cell with maximum depth as proxy for release area
-        max_idx = np.unravel_index(np.argmax(depth_raster), depth_raster.shape)
-        release_centroid = (xx[max_idx], yy[max_idx])
-
-    # Compute distance from release centroid
-    distances = np.sqrt((xx - release_centroid[0])**2 + (yy - release_centroid[1])**2)
-
-    # Mask to only impacted cells
-    impact_mask = depth_raster > min_depth
-    runout_distance = np.where(impact_mask, distances, 0)
-
-    return runout_distance
+    return envelopes
 
 
 def compute_hazard_zones(

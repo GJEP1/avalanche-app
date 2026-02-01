@@ -112,8 +112,9 @@ class EnsembleConfig:
     confinement_type: ConfinementType = ConfinementType.LATERAL
 
     # Simulation performance settings
-    mass_per_part: float = 500000.0  # Fast default
-    delta_th: float = 4.0  # Fast default
+    mass_per_part: float = 500000.0  # Standard default
+    delta_th: float = 4.0  # Standard default
+    sim_timeout: int = 7200  # Timeout per simulation in seconds (default 2 hours)
 
     # Output options
     percentiles: List[int] = field(default_factory=lambda: [10, 50, 90])
@@ -141,6 +142,7 @@ class EnsembleConfig:
             "confinement_type": self.confinement_type.value,
             "mass_per_part": self.mass_per_part,
             "delta_th": self.delta_th,
+            "sim_timeout": self.sim_timeout,
             "percentiles": self.percentiles,
             "notes": self.notes,
             "created_at": self.created_at,
@@ -162,6 +164,7 @@ class EnsembleConfig:
             confinement_type=ConfinementType(data["confinement_type"]),
             mass_per_part=data.get("mass_per_part", 500000.0),
             delta_th=data.get("delta_th", 4.0),
+            sim_timeout=data.get("sim_timeout", 7200),
             percentiles=data.get("percentiles", [10, 50, 90]),
             notes=data.get("notes", ""),
             created_at=data.get("created_at", datetime.now().isoformat())

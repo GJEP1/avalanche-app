@@ -111,11 +111,10 @@ def create_folium_probability_map(
             'prob', ['blue', 'cyan', 'green', 'yellow', 'red'])
         vmin, vmax = 0, 1
     elif "runout" in map_type.lower():
-        # Runout distance: green to red gradient
+        # Runout envelope: binary mask (0=outside, 1=inside envelope)
         cmap = mcolors.LinearSegmentedColormap.from_list(
-            'runout', ['darkgreen', 'green', 'yellow', 'orange', 'red'])
-        vmin = 0
-        vmax = np.nanpercentile(masked_data, 99) if np.any(~np.isnan(masked_data)) else 5000
+            'runout', ['white', 'orangered'])
+        vmin, vmax = 0, 1
     elif "depth" in map_type.lower():
         cmap = plt.cm.Blues
         vmin = 0
@@ -378,17 +377,17 @@ def create_probability_map_figure(
         zmin, zmax = 0, 1
         colorbar_title = "Probability"
     elif "runout" in map_type.lower():
-        # Runout distance: green to red gradient
+        # Runout envelope: binary mask (0=outside, 1=inside envelope)
+        # Use solid color for impacted area
         colorscale = [
-            [0.0, 'rgb(0,100,0)'],
-            [0.25, 'rgb(0,200,0)'],
-            [0.5, 'rgb(255,255,0)'],
-            [0.75, 'rgb(255,150,0)'],
-            [1.0, 'rgb(255,0,0)']
+            [0.0, 'rgba(0,0,0,0)'],
+            [0.5, 'rgba(0,0,0,0)'],
+            [0.5, 'rgb(255,100,50)'],
+            [1.0, 'rgb(255,100,50)']
         ]
         zmin = 0
-        zmax = np.nanpercentile(masked_data[~np.isnan(masked_data)], 99) if np.any(~np.isnan(masked_data)) else 5000
-        colorbar_title = "Runout Distance (m)"
+        zmax = 1
+        colorbar_title = "Runout Envelope"
     elif "depth" in map_type.lower():
         # Depth: meters, blue scale
         colorscale = [
@@ -921,12 +920,18 @@ with tab_config:
         total_sims = len(selected_indices) * sims_per_slbl
 
         # Runtime estimate based on performance preset (24 parallel workers)
-        # Fast (coarse): ~35 min/sim, Standard: ~50 min/sim
+        # Fast: ~15 min/sim, Standard: ~35 min/sim, Accurate: ~80 min/sim
         perf_preset_key = "ensemble_perf_preset"
         if perf_preset_key in st.session_state:
-            time_per_sim = 35 if st.session_state[perf_preset_key] == "Fast (coarser)" else 50
+            preset = st.session_state[perf_preset_key]
+            if preset == "Fast":
+                time_per_sim = 15
+            elif preset == "Standard":
+                time_per_sim = 35
+            else:  # Accurate
+                time_per_sim = 80
         else:
-            time_per_sim = 50  # Default to Standard estimate
+            time_per_sim = 35  # Default to Standard estimate
         n_workers = 24
         est_hours = (total_sims * time_per_sim) / n_workers / 60
 
@@ -1099,19 +1104,25 @@ with tab_config:
     with st.expander("Performance Settings", expanded=False):
         perf_preset = st.radio(
             "Performance preset",
-            ["Fast (coarser)", "Standard (accurate)"],
+            ["Fast", "Standard", "Accurate"],
             index=1,  # Default to Standard
             horizontal=True,
             key="ensemble_perf_preset",
-            help="Fast: ~35 min/sim, fewer particles. Standard: ~50 min/sim, more accurate."
+            help="Fast: ~15 min/sim. Standard: ~35 min/sim. Accurate: ~80 min/sim."
         )
 
-        if perf_preset == "Standard (accurate)":
+        if perf_preset == "Accurate":
             default_mass = 280000.0
             default_delta = 2.0
-        else:
+            default_timeout = 9000  # 2.5 hours for accurate mode
+        elif perf_preset == "Standard":
             default_mass = 500000.0
             default_delta = 4.0
+            default_timeout = 7200  # 2 hours
+        else:  # Fast
+            default_mass = 700000.0
+            default_delta = 6.0
+            default_timeout = 3600  # 1 hour
 
         col_mass, col_delta = st.columns(2)
         with col_mass:
@@ -1119,14 +1130,14 @@ with tab_config:
                 "Mass per particle [kg]",
                 value=default_mass,
                 step=10000.0,
-                help="Default: 280,000 (Standard) / 500,000 (Fast)"
+                help="Default: 700,000 (Fast) / 500,000 (Standard) / 280,000 (Accurate)"
             )
         with col_delta:
             delta_th = st.number_input(
                 "Release thickness per particle [m]",
                 value=default_delta,
                 step=0.5,
-                help="Default: 2.0 (Standard) / 4.0 (Fast)"
+                help="Default: 6.0 (Fast) / 4.0 (Standard) / 2.0 (Accurate)"
             )
 
     # ----- 6. SUBMIT -----
@@ -1160,6 +1171,13 @@ with tab_config:
 
     # Submit button
     submit_disabled = len(selected_indices) == 0
+
+    # Check if another heavy job is running
+    job_queue = get_job_queue()
+    queue_status = job_queue.get_queue_status()
+    if queue_status.get('exclusive_job_running'):
+        st.info("⏳ Note: Another heavy job (sweep or ensemble) is currently running. "
+                "Your job will be queued and start automatically when the current job completes.")
 
     if st.button(
         "Submit Probability Ensemble",
@@ -1200,11 +1218,11 @@ with tab_config:
             confinement_type=confinement,
             mass_per_part=mass_per_part,
             delta_th=delta_th,
+            sim_timeout=default_timeout,
             notes=notes
         )
 
-        # Submit to job queue
-        job_queue = get_job_queue()
+        # Submit to job queue (job_queue already obtained above)
         job = job_queue.submit(
             job_type="probability_ensemble",
             project_name=project.name,
@@ -1212,11 +1230,16 @@ with tab_config:
             params={"config": config.to_dict()}
         )
 
+        # Check if job was queued behind another
+        queued_msg = ""
+        if queue_status.get('exclusive_job_running'):
+            queued_msg = "\n\n⏳ **Status:** Queued — will start when current heavy job completes."
+
         st.success(f"""
         Ensemble job submitted!
 
         **Job ID:** {job.id}
-        **Total simulations:** {total_sims}
+        **Total simulations:** {total_sims}{queued_msg}
 
         Monitor progress in the Simulation page Jobs tab.
         Results will appear in the 'View Results' tab when complete.
@@ -1323,7 +1346,7 @@ with tab_results:
                         # Organize maps by category for better UX
                         map_categories = {
                             "Impact Probability": [m for m in available_tifs if "impact" in m.lower() or m == "impact_probability"],
-                            "Runout Distance": [m for m in available_tifs if "runout" in m.lower()],
+                            "Runout Envelope": [m for m in available_tifs if "runout" in m.lower()],
                             "Depth": [m for m in available_tifs if "depth" in m.lower()],
                             "Velocity": [m for m in available_tifs if "velocity" in m.lower()],
                             "Pressure": [m for m in available_tifs if "pressure" in m.lower()],

@@ -247,6 +247,4 @@ Internal use - MTLab
 
 1. Strom, A., L. Li, and H. Lan. 2019. "Rock Avalanche Mobility: Optimal Characterization and the Effects of Confinement." *Landslides* 16(8): 1437-52. https://doi.org/10.1007/s10346-019-01181-z
 
-2. Brideau, M.-A., et al. 2021. Version 2.2, 28 Jan 2020. Global landslide database.
-
-3. AVAFRAME Documentation: https://docs.avaframe.org/
+2. AVAFRAME Documentation: https://docs.avaframe.org/

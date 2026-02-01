@@ -151,27 +151,6 @@ with col6:
 
 st.divider()
 
-# Project status summary
-st.header("Project Status")
-
-col_a, col_b, col_c = st.columns(3)
-
-# Count SLBL outputs
-slbl_count = len(list(project.slbl_dir.glob("*_slbl_thickness.tif"))) if project.slbl_dir.exists() else 0
-# Count simulations  
-sim_count = len(list(project.simulations_dir.glob("*/Outputs"))) if project.simulations_dir.exists() else 0
-# Count scenarios
-scenario_count = len(list(project.scenarios_dir.glob("*.shp"))) if project.scenarios_dir.exists() else 0
-
-with col_a:
-    st.metric("Scenario Polygons", scenario_count)
-    
-with col_b:
-    st.metric("SLBL Thickness Rasters", slbl_count)
-
-with col_c:
-    st.metric("Completed Simulations", sim_count)
-
 # Quick actions
 st.header("Quick Actions")
 

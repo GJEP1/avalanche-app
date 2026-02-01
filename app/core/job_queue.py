@@ -140,7 +140,13 @@ class JobQueue:
 
     Jobs are stored as JSON files in the queue directory.
     Multiple worker threads process jobs concurrently using ThreadPoolExecutor.
+
+    Heavy/exclusive jobs (simulation_sweep, probability_ensemble) are serialized
+    to prevent resource contention - only one can run at a time.
     """
+
+    # Job types that are resource-intensive and should not run concurrently
+    EXCLUSIVE_JOB_TYPES = {'simulation_sweep', 'probability_ensemble'}
 
     def __init__(self, queue_dir: Path, max_workers: int = 4):
         self.queue_dir = Path(queue_dir)
@@ -152,6 +158,7 @@ class JobQueue:
         self._stop_event = threading.Event()
         self._lock = threading.Lock()
         self._running_jobs: Set[str] = set()  # Track job IDs currently being processed
+        self._running_job_types: Dict[str, str] = {}  # Track job_id -> job_type for running jobs
         self._futures: Dict[str, Future] = {}  # Track futures by job ID
 
     def register_handler(self, job_type: str, handler: Callable):
@@ -295,6 +302,7 @@ class JobQueue:
         """Get current queue status including worker info."""
         all_jobs = self.list_jobs(limit=100)
         running_jobs = [j for j in all_jobs if j.status == JobStatus.RUNNING]
+        pending_jobs = [j for j in all_jobs if j.status == JobStatus.PENDING]
 
         # Count active workers from running jobs (each running job uses a worker)
         # Also track unique worker IDs for jobs that have them
@@ -306,12 +314,18 @@ class JobQueue:
         # Active workers = number of running jobs (each job gets one worker)
         active_workers = len(running_jobs)
 
+        # Check if exclusive jobs are queued (waiting for another to finish)
+        exclusive_running = any(j.job_type in self.EXCLUSIVE_JOB_TYPES for j in running_jobs)
+        queued_exclusive = [j for j in pending_jobs if j.job_type in self.EXCLUSIVE_JOB_TYPES]
+
         return {
             'max_workers': self.max_workers,
             'active_workers': active_workers,
             'running_jobs': len(running_jobs),
-            'pending_jobs': len([j for j in all_jobs if j.status == JobStatus.PENDING]),
+            'pending_jobs': len(pending_jobs),
             'failed_jobs': len([j for j in all_jobs if j.status == JobStatus.FAILED]),
+            'exclusive_job_running': exclusive_running,
+            'queued_exclusive_jobs': len(queued_exclusive),
         }
 
     def _save_job(self, job: Job):
@@ -400,7 +414,16 @@ class JobQueue:
         """Called when a job future completes."""
         with self._lock:
             self._running_jobs.discard(job_id)
+            self._running_job_types.pop(job_id, None)
             self._futures.pop(job_id, None)
+
+    def _is_exclusive_job_running(self) -> bool:
+        """Check if any exclusive (resource-heavy) job is currently running."""
+        with self._lock:
+            for job_type in self._running_job_types.values():
+                if job_type in self.EXCLUSIVE_JOB_TYPES:
+                    return True
+        return False
 
     def _dispatcher_loop(self):
         """Main dispatcher loop - assigns pending jobs to available workers."""
@@ -412,6 +435,7 @@ class JobQueue:
                 completed = [jid for jid, f in self._futures.items() if f.done()]
                 for jid in completed:
                     self._running_jobs.discard(jid)
+                    self._running_job_types.pop(jid, None)
                     self._futures.pop(jid, None)
 
             # Check available worker slots
@@ -425,11 +449,18 @@ class JobQueue:
                     if job.id in self._running_jobs:
                         continue
 
+                    # Check if this is an exclusive job and if another exclusive job is running
+                    if job.job_type in self.EXCLUSIVE_JOB_TYPES:
+                        if self._is_exclusive_job_running():
+                            # Skip this job - wait for the running exclusive job to complete
+                            continue
+
                     # Mark as running to prevent duplicate dispatch
                     with self._lock:
                         if job.id in self._running_jobs:
                             continue
                         self._running_jobs.add(job.id)
+                        self._running_job_types[job.id] = job.job_type
 
                     # Assign worker ID
                     worker_counter += 1
