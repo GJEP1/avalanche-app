@@ -418,7 +418,6 @@ class EnsembleManager:
             "Aaron et al. (2022) Landslides 19:2853-2869 - Ensemble probabilistic framework",
             "Strom et al. (2019) Landslides 16:1437-1452 - Empirical mobility constraints",
             "Brideau et al. (2021) WLF5 pp.321-327 - H/L exceedance relationships",
-            "Swiss Federal Guidelines BUWAL/BWW/BRP (1997) - Intensity thresholds",
             "Hungr (1995) Can. Geotech. J. 32:610-623 - Voellmy model formulation"
         ]
 

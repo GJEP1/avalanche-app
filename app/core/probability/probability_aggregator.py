@@ -21,35 +21,19 @@ Outputs:
 
 Scientific Basis:
 ----------------
-- Swiss Federal Guidelines (1997): Intensity-probability hazard zoning
 - Hungr (1995): Impact pressure calculation P = 0.5 * rho * v^2
 - Aaron et al. (2022): Weighted percentile methodology
 """
 
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
-from enum import Enum
 import numpy as np
-
-
-class IntensityClass(Enum):
-    """
-    Intensity classes based on Swiss Federal Guidelines (1997).
-
-    These define the damage potential of mass movements based on
-    the depth-velocity product (h * v in m^2/s).
-    """
-    HIGH = "high"       # h*v > 1 m^2/s - building destruction
-    MEDIUM = "medium"   # 0.1 < h*v <= 1 m^2/s - structural damage
-    LOW = "low"         # h*v <= 0.1 m^2/s - minor damage
 
 
 @dataclass
 class IntensityThresholds:
     """
-    Configurable thresholds for intensity classification and mapping.
-
-    Default values based on Swiss Guidelines and common practice.
+    Configurable thresholds for threshold exceedance mapping.
     """
     # Depth thresholds (meters)
     depth_low: float = 0.5       # Below this is negligible
@@ -66,10 +50,6 @@ class IntensityThresholds:
     pressure_low: float = 10.0    # Minor structural stress
     pressure_medium: float = 50.0  # Window failure
     pressure_high: float = 100.0   # Structural damage
-
-    # Swiss intensity threshold (h*v product)
-    hv_high: float = 1.0     # m^2/s
-    hv_medium: float = 0.1   # m^2/s
 
 
 @dataclass
@@ -264,49 +244,6 @@ class ProbabilityAggregator:
 
         return results
 
-    def compute_intensity_class_map(
-        self,
-        depth_stack: np.ndarray,
-        velocity_stack: np.ndarray,
-        weights: Optional[np.ndarray] = None,
-        percentile: int = 50
-    ) -> np.ndarray:
-        """
-        Compute Swiss-style intensity class map.
-
-        Based on h*v product at specified percentile.
-
-        Args:
-            depth_stack: 3D array of flow depths
-            velocity_stack: 3D array of velocities
-            weights: Simulation weights
-            percentile: Percentile to use for classification
-
-        Returns:
-            2D array of intensity classes (0=none, 1=low, 2=medium, 3=high)
-        """
-        # Compute h*v product for each simulation
-        hv_stack = depth_stack * velocity_stack
-
-        # Get percentile of h*v
-        n_sims = hv_stack.shape[0]
-        if weights is None:
-            weights = np.ones(n_sims) / n_sims
-
-        hv_percentile = self.compute_weighted_percentile(
-            hv_stack, weights, percentile
-        )
-
-        # Classify
-        thresholds = self.config.intensity_thresholds
-        intensity_class = np.zeros_like(hv_percentile, dtype=np.int8)
-
-        intensity_class[hv_percentile > 0] = 1  # Low
-        intensity_class[hv_percentile > thresholds.hv_medium] = 2  # Medium
-        intensity_class[hv_percentile > thresholds.hv_high] = 3  # High
-
-        return intensity_class
-
     def compute_impact_pressure(
         self,
         velocity_stack: np.ndarray
@@ -351,10 +288,9 @@ class ProbabilityAggregator:
             - impact_probability: P(depth > threshold)
             - depth_p10, depth_p50, depth_p90: Percentile depths
             - velocity_p10, velocity_p50, velocity_p90: Percentile velocities
-            - pressure_p50: Median impact pressure
-            - intensity_class: Swiss-style intensity classification
-            - exceed_depth_1m: P(depth > 1m)
-            - exceed_velocity_5ms: P(velocity > 5 m/s)
+            - pressure_p10, pressure_p50, pressure_p90: Percentile pressures
+            - exceed_depth_low/medium/high: Depth exceedance probabilities
+            - exceed_velocity_low/medium/high: Velocity exceedance probabilities
         """
         n_sims = depth_stack.shape[0]
 
@@ -383,11 +319,6 @@ class ProbabilityAggregator:
         pressure_percentiles = self.compute_all_percentiles(pressure_stack, weights)
         for p, arr in pressure_percentiles.items():
             outputs[f"pressure_p{p}"] = arr
-
-        # Intensity class
-        outputs["intensity_class"] = self.compute_intensity_class_map(
-            depth_stack, velocity_stack, weights, percentile=50
-        )
 
         # Threshold exceedance maps
         thresholds = self.config.intensity_thresholds
@@ -452,52 +383,3 @@ def compute_runout_envelopes(
         envelopes[percentile] = (impact_probability >= threshold).astype(np.float32)
 
     return envelopes
-
-
-def compute_hazard_zones(
-    impact_probability: np.ndarray,
-    intensity_class: np.ndarray
-) -> np.ndarray:
-    """
-    Compute hazard zones from probability and intensity.
-
-    Follows Swiss-style hazard zoning matrix combining:
-    - Impact probability (high/medium/low)
-    - Intensity class (high/medium/low)
-
-    Returns:
-        2D array with hazard zone codes:
-        - 0: No hazard
-        - 1: Low hazard (blue)
-        - 2: Medium hazard (yellow)
-        - 3: High hazard (red)
-    """
-    hazard_zone = np.zeros_like(impact_probability, dtype=np.int8)
-
-    # Probability thresholds
-    p_low = 0.01   # 1% probability
-    p_medium = 0.10  # 10% probability
-    p_high = 0.30   # 30% probability
-
-    # High hazard: high probability OR high intensity with medium probability
-    high_mask = (
-        (impact_probability > p_high) |
-        ((intensity_class == 3) & (impact_probability > p_medium))
-    )
-    hazard_zone[high_mask] = 3
-
-    # Medium hazard: medium probability with any intensity, or high intensity with low prob
-    medium_mask = (
-        ((impact_probability > p_medium) & ~high_mask) |
-        ((intensity_class >= 2) & (impact_probability > p_low) & ~high_mask)
-    )
-    hazard_zone[medium_mask] = 2
-
-    # Low hazard: any impact with low probability
-    low_mask = (
-        (impact_probability > p_low) &
-        ~high_mask & ~medium_mask
-    )
-    hazard_zone[low_mask] = 1
-
-    return hazard_zone

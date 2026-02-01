@@ -10,7 +10,6 @@ Scientific Foundation:
 - Aaron et al. (2022): Bayesian ensemble framework, Landslides 19:2853-2869
 - Strom et al. (2019): Area-energy relationships, Landslides 16:1437-1452
 - Brideau et al. (2021): H/L exceedance probability, WLF5 Proceedings
-- Swiss Guidelines (1997): Intensity-probability hazard zoning
 
 Modules:
 --------
@@ -45,9 +44,7 @@ from .weighting_schemes import (
 from .probability_aggregator import (
     ProbabilityAggregator,
     ProbabilityConfig,
-    IntensityThresholds,
-    IntensityClass,
-    compute_hazard_zones
+    IntensityThresholds
 )
 
 from .ensemble_manager import (
@@ -93,8 +90,6 @@ __all__ = [
     "ProbabilityAggregator",
     "ProbabilityConfig",
     "IntensityThresholds",
-    "IntensityClass",
-    "compute_hazard_zones",
 
     # Ensemble management
     "EnsembleManager",
